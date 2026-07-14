@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import Papa from 'papaparse';
+import * as XLSX from 'xlsx';
 import { 
   Search, 
   X, 
@@ -21,7 +22,10 @@ import {
   PlusCircle,
   Download,
   ArrowUpDown,
-  Maximize2
+  Maximize2,
+  ShoppingCart,
+  PlusSquare,
+  Minus
 } from 'lucide-react';
 
 export default function App() {
@@ -67,6 +71,37 @@ export default function App() {
   const [selectedRow, setSelectedRow] = useState(null); // Data of the selected row for Detail Modal
   const [showSortMenu, setShowSortMenu] = useState(false);
 
+  // Cart / Pick List States
+  const [allPickLists, setAllPickLists] = useState(() => {
+    try {
+      return JSON.parse(localStorage.getItem('sheet_all_picklists')) || {};
+    } catch {
+      return {};
+    }
+  });
+  const [showPickList, setShowPickList] = useState(false);
+  const [pickingRow, setPickingRow] = useState(null);
+  const [pickingQty, setPickingQty] = useState(1);
+
+  // States for Export Config Modal
+  const [showExportConfig, setShowExportConfig] = useState(false);
+  const [exportType, setExportType] = useState('all'); // 'all' or 'picklist'
+  const [exportColsSelection, setExportColsSelection] = useState({}); // { colName: boolean }
+
+  // Derived current pickList
+  const currentSheetKey = currentSheetInfo ? `${currentSheetInfo.spreadsheetId}_${currentSheetInfo.gid}` : null;
+  const pickList = currentSheetKey && allPickLists[currentSheetKey] ? allPickLists[currentSheetKey] : [];
+
+  // Helper to update the current sheet's pickList
+  const setPickList = (updater) => {
+    if (!currentSheetKey) return;
+    setAllPickLists(prev => {
+      const currentList = prev[currentSheetKey] || [];
+      const newList = typeof updater === 'function' ? updater(currentList) : updater;
+      return { ...prev, [currentSheetKey]: newList };
+    });
+  };
+
   // Handle Theme Switching
   useEffect(() => {
     document.documentElement.setAttribute('data-theme', theme);
@@ -77,6 +112,11 @@ export default function App() {
   useEffect(() => {
     localStorage.setItem('sheet_history', JSON.stringify(history));
   }, [history]);
+
+  // Sync All Pick Lists to LocalStorage
+  useEffect(() => {
+    localStorage.setItem('sheet_all_picklists', JSON.stringify(allPickLists));
+  }, [allPickLists]);
 
   // Regex to extract Spreadsheet ID & GID
   const parseSheetUrl = (url) => {
@@ -267,17 +307,72 @@ export default function App() {
     setAdvancedFilters(prev => prev.filter(f => f.id !== id));
   };
 
-  // Export CSV
-  const exportToCSV = () => {
+  // Handle opening Export configuration
+  const handleOpenExportAll = () => {
     if (filteredData.length === 0) return;
-    const csv = Papa.unparse(filteredData);
-    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
-    const link = document.createElement('a');
-    link.href = URL.createObjectURL(blob);
-    link.setAttribute('download', `${currentSheetInfo.name}_export.csv`);
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
+    const initialSelection = {};
+    columns.forEach(col => {
+      initialSelection[col] = selectedColumns[col] !== false; // Check only visible ones by default
+    });
+    setExportColsSelection(initialSelection);
+    setExportType('all');
+    setShowExportConfig(true);
+  };
+
+  const handleOpenExportPickList = () => {
+    if (pickList.length === 0) return;
+    const initialSelection = {};
+    columns.forEach(col => {
+      initialSelection[col] = selectedColumns[col] !== false; // Check only visible ones by default
+    });
+    setExportColsSelection(initialSelection);
+    setExportType('picklist');
+    setShowExportConfig(true);
+  };
+
+  // Perform actual XLSX Export based on selection
+  const triggerExport = () => {
+    const selectedColsList = columns.filter(col => exportColsSelection[col]);
+    if (selectedColsList.length === 0) {
+      alert('Vui lòng chọn ít nhất một cột để xuất.');
+      return;
+    }
+
+    if (exportType === 'all') {
+      const exportData = filteredData.map(row => {
+        const rowData = {};
+        selectedColsList.forEach(col => {
+          rowData[col] = row[col];
+        });
+        return rowData;
+      });
+      const worksheet = XLSX.utils.json_to_sheet(exportData);
+      const workbook = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(workbook, worksheet, "Data");
+      XLSX.writeFile(workbook, `${currentSheetInfo.name}_export.xlsx`);
+      setShowExportConfig(false);
+    } else {
+      const exportData = pickList.map(item => {
+        const rowData = { 'Số lượng nhặt': item.quantity };
+        selectedColsList.forEach(col => {
+          rowData[col] = item.originalRow[col];
+        });
+        return rowData;
+      });
+      const worksheet = XLSX.utils.json_to_sheet(exportData);
+      const workbook = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(workbook, worksheet, "Pick List");
+      XLSX.writeFile(workbook, `danh_sach_nhat_hang_${new Date().getTime()}.xlsx`);
+      
+      setShowExportConfig(false);
+      setShowPickList(false);
+      
+      setTimeout(() => {
+        if (window.confirm('Đã tải xong file Excel! Bạn có muốn xóa danh sách hiện tại để nhặt đơn mới không?')) {
+          setPickList([]);
+        }
+      }, 500);
+    }
   };
 
   // Smart Formatting
@@ -430,6 +525,19 @@ export default function App() {
           </div>
           
           <div className="action-buttons">
+            <button 
+              className="icon-btn" 
+              onClick={() => setShowPickList(true)} 
+              title="Danh sách nhặt hàng"
+              style={{ position: 'relative' }}
+            >
+              <ShoppingCart size={18} />
+              {pickList.length > 0 && (
+                <span style={{ position: 'absolute', top: -4, right: -4, background: 'var(--danger)', color: 'white', borderRadius: '50%', width: 16, height: 16, fontSize: 10, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                  {pickList.length}
+                </span>
+              )}
+            </button>
             <button 
               className="icon-btn" 
               onClick={() => setShowHistory(!showHistory)} 
@@ -672,8 +780,8 @@ export default function App() {
                 <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
                   <button 
                     className="icon-btn" 
-                    onClick={exportToCSV}
-                    title="Xuất file CSV"
+                    onClick={handleOpenExportAll}
+                    title="Xuất file Excel"
                   >
                     <Download size={18} />
                   </button>
@@ -842,6 +950,14 @@ export default function App() {
                       <h4 className="card-title">{cardTitle}</h4>
                       <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                         <span className="card-index">#{globalIndex}</span>
+                        <button 
+                          className="icon-btn" 
+                          onClick={(e) => { e.stopPropagation(); setPickingRow(row); setPickingQty(1); }}
+                          title="Thêm vào danh sách nhặt"
+                          style={{ color: 'var(--accent)', padding: '4px' }}
+                        >
+                          <PlusSquare size={16} />
+                        </button>
                         <Maximize2 size={14} style={{ color: 'var(--text-tertiary)' }} />
                       </div>
                     </header>
@@ -995,9 +1111,18 @@ export default function App() {
           <div className="drawer-content detail-modal" onClick={(e) => e.stopPropagation()}>
             <header className="drawer-header" style={{ position: 'sticky', top: 0, backgroundColor: 'var(--bg-card)', zIndex: 10, paddingBottom: '12px', borderBottom: '1px solid var(--border)' }}>
               <h3 className="drawer-title" style={{ fontSize: '1.2rem' }}>{selectedRow[titleColumn] || 'Chi tiết'}</h3>
-              <button className="close-btn" onClick={() => setSelectedRow(null)}>
-                <X size={20} />
-              </button>
+              <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+                <button 
+                  className="primary-btn"
+                  onClick={() => { setPickingRow(selectedRow); setPickingQty(1); setSelectedRow(null); }}
+                  style={{ padding: '6px 12px', fontSize: '0.85rem' }}
+                >
+                  <PlusSquare size={14} /> Chọn
+                </button>
+                <button className="close-btn" onClick={() => setSelectedRow(null)}>
+                  <X size={20} />
+                </button>
+              </div>
             </header>
             <div className="detail-body">
               {columns.map((col, idx) => (
@@ -1006,6 +1131,199 @@ export default function App() {
                   <div className="detail-value">{formatCellValue(selectedRow[col])}</div>
                 </div>
               ))}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* 8. PICKING QUANTITY MODAL */}
+      {pickingRow && (
+        <div className="drawer-overlay" onClick={() => setPickingRow(null)} style={{ zIndex: 200, alignItems: 'center', display: 'flex', justifyContent: 'center', padding: '20px' }}>
+          <div className="card" onClick={(e) => e.stopPropagation()} style={{ width: '100%', maxWidth: '320px', padding: '20px', animation: 'slideUp 0.2s ease-out' }}>
+            <h3 style={{ marginBottom: '16px', fontSize: '1.1rem' }}>Nhập số lượng</h3>
+            <p style={{ fontSize: '0.9rem', color: 'var(--text-secondary)', marginBottom: '16px', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+              {pickingRow[titleColumn]}
+            </p>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '24px', justifyContent: 'center' }}>
+              <button className="icon-btn" style={{ width: 40, height: 40, backgroundColor: 'var(--bg-primary)' }} onClick={() => setPickingQty(Math.max(1, pickingQty - 1))}><Minus size={20} /></button>
+              <input 
+                type="number" 
+                value={pickingQty} 
+                onChange={(e) => setPickingQty(Math.max(1, parseInt(e.target.value) || 1))}
+                className="filter-input"
+                style={{ width: '80px', textAlign: 'center', fontSize: '1.2rem', padding: '8px' }}
+              />
+              <button className="icon-btn" style={{ width: 40, height: 40, backgroundColor: 'var(--bg-primary)' }} onClick={() => setPickingQty(pickingQty + 1)}><Plus size={20} /></button>
+            </div>
+            <div style={{ display: 'flex', gap: '8px' }}>
+              <button className="secondary-btn" onClick={() => setPickingRow(null)} style={{ flex: 1, padding: '10px' }}>Hủy</button>
+              <button className="primary-btn" style={{ flex: 1, padding: '10px' }} onClick={() => {
+                setPickList(prev => {
+                  const exists = prev.findIndex(item => JSON.stringify(item.originalRow) === JSON.stringify(pickingRow));
+                  if (exists >= 0) {
+                    const newList = [...prev];
+                    newList[exists].quantity += pickingQty;
+                    return newList;
+                  }
+                  return [...prev, { originalRow: pickingRow, quantity: pickingQty, addedAt: Date.now() }];
+                });
+                setPickingRow(null);
+              }}>
+                <Check size={16} /> Xác nhận
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* 9. PICK LIST DRAWER */}
+      {showPickList && (
+        <div className="drawer-overlay" onClick={() => setShowPickList(false)} style={{ zIndex: 150 }}>
+          <div className="drawer-content" onClick={(e) => e.stopPropagation()} style={{ height: '85vh', display: 'flex', flexDirection: 'column', padding: 0 }}>
+            <header className="drawer-header" style={{ padding: '16px', borderBottom: '1px solid var(--border)' }}>
+              <h3 className="drawer-title" style={{ fontSize: '1.1rem' }}>Danh sách đã chọn ({pickList.length})</h3>
+              <div style={{ display: 'flex', gap: '12px', alignItems: 'center' }}>
+                {pickList.length > 0 && (
+                  <button 
+                    onClick={() => {
+                      if (window.confirm('Bạn có chắc muốn xóa toàn bộ danh sách đã chọn?')) {
+                        setPickList([]);
+                      }
+                    }} 
+                    style={{ display: 'flex', alignItems: 'center', gap: '4px', color: 'var(--danger)', fontSize: '0.8rem', fontWeight: '600' }}
+                  >
+                    <Trash2 size={14} /> Xóa hết
+                  </button>
+                )}
+                <button className="close-btn" onClick={() => setShowPickList(false)}>
+                  <X size={20} />
+                </button>
+              </div>
+            </header>
+            
+            {pickList.length === 0 ? (
+              <p style={{ textAlign: 'center', fontSize: '0.9rem', color: 'var(--text-tertiary)', padding: '32px 16px' }}>
+                Danh sách trống. Bấm [+] trên thẻ để thêm món.
+              </p>
+            ) : (
+              <div style={{ display: 'flex', flexDirection: 'column', flex: 1, overflow: 'hidden' }}>
+                <div className="history-list" style={{ flex: 1, overflowY: 'auto', padding: '16px' }}>
+                  {pickList.map((item, idx) => (
+                    <div key={idx} className="history-item" style={{ padding: '12px', cursor: 'default', border: '1px solid var(--border)', borderRadius: 'var(--radius-md)', marginBottom: '8px' }}>
+                      <div className="history-item-content">
+                        <div className="history-item-name">{item.originalRow[titleColumn]}</div>
+                        <div className="history-item-meta" style={{ display: 'flex', alignItems: 'center', gap: '12px', marginTop: '6px' }}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                            <button 
+                              className="icon-btn" 
+                              style={{ width: 24, height: 24, padding: 0, backgroundColor: 'var(--bg-secondary)', color: 'var(--text-primary)' }}
+                              onClick={() => {
+                                setPickList(prev => prev.map((p, i) => i === idx ? { ...p, quantity: Math.max(1, p.quantity - 1) } : p))
+                              }}
+                            >
+                              <Minus size={14} />
+                            </button>
+                            <span style={{ color: 'var(--accent)', fontWeight: 'bold', fontSize: '0.95rem', minWidth: '24px', textAlign: 'center' }}>{item.quantity}</span>
+                            <button 
+                              className="icon-btn" 
+                              style={{ width: 24, height: 24, padding: 0, backgroundColor: 'var(--bg-secondary)', color: 'var(--text-primary)' }}
+                              onClick={() => {
+                                setPickList(prev => prev.map((p, i) => i === idx ? { ...p, quantity: p.quantity + 1 } : p))
+                              }}
+                            >
+                              <Plus size={14} />
+                            </button>
+                          </div>
+                          <span style={{ fontSize: '0.75rem', color: 'var(--text-tertiary)', marginLeft: 'auto' }}>{new Date(item.addedAt).toLocaleTimeString('vi-VN')}</span>
+                        </div>
+                      </div>
+                      <button 
+                        className="delete-history-btn" 
+                        onClick={() => setPickList(prev => prev.filter((_, i) => i !== idx))}
+                        title="Xóa món này"
+                        style={{ padding: '8px' }}
+                      >
+                        <Trash2 size={16} />
+                      </button>
+                    </div>
+                  ))}
+                </div>
+                <div style={{ padding: '16px', borderTop: '1px solid var(--border)', backgroundColor: 'var(--bg-primary)' }}>
+                  <button 
+                    className="primary-btn" 
+                    style={{ width: '100%', padding: '12px', fontSize: '1rem', justifyContent: 'center' }}
+                    onClick={handleOpenExportPickList}
+                  >
+                    <Download size={18} /> Xuất Excel danh sách này
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* 10. EXPORT CONFIGURATION MODAL */}
+      {showExportConfig && (
+        <div className="drawer-overlay" onClick={() => setShowExportConfig(false)} style={{ zIndex: 300 }}>
+          <div className="drawer-content" onClick={(e) => e.stopPropagation()} style={{ maxHeight: '80vh', display: 'flex', flexDirection: 'column', padding: '20px' }}>
+            <header className="drawer-header" style={{ marginBottom: '16px', paddingBottom: '12px' }}>
+              <h3 className="drawer-title" style={{ fontSize: '1.2rem' }}>Cấu hình cột xuất Excel</h3>
+              <button className="close-btn" onClick={() => setShowExportConfig(false)}>
+                <X size={20} />
+              </button>
+            </header>
+
+            <div style={{ flex: 1, overflowY: 'auto', marginBottom: '20px' }}>
+              <div style={{ display: 'flex', gap: '8px', marginBottom: '16px' }}>
+                <button 
+                  className="pill" 
+                  style={{ flex: 1, justifyContent: 'center' }}
+                  onClick={() => {
+                    const allSelected = {};
+                    columns.forEach(col => allSelected[col] = true);
+                    setExportColsSelection(allSelected);
+                  }}
+                >
+                  Chọn tất cả
+                </button>
+                <button 
+                  className="pill" 
+                  style={{ flex: 1, justifyContent: 'center' }}
+                  onClick={() => {
+                    const noneSelected = {};
+                    columns.forEach(col => noneSelected[col] = false);
+                    setExportColsSelection(noneSelected);
+                  }}
+                >
+                  Bỏ chọn tất cả
+                </button>
+              </div>
+
+              <div className="checkbox-group" style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+                {columns.map((col, idx) => (
+                  <label 
+                    key={idx} 
+                    className="checkbox-option"
+                    style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', cursor: 'pointer', padding: '8px 12px', border: '1px solid var(--border)', borderRadius: 'var(--radius-sm)', transition: 'background-color var(--transition-fast)' }}
+                  >
+                    <span style={{ fontSize: '0.95rem' }}>{col}</span>
+                    <input 
+                      type="checkbox" 
+                      checked={exportColsSelection[col] || false}
+                      onChange={() => setExportColsSelection(prev => ({ ...prev, [col]: !prev[col] }))}
+                      style={{ width: '18px', height: '18px', accentColor: 'var(--accent)' }}
+                    />
+                  </label>
+                ))}
+              </div>
+            </div>
+
+            <div style={{ display: 'flex', gap: '8px', paddingTop: '12px', borderTop: '1px solid var(--border)' }}>
+              <button className="secondary-btn" onClick={() => setShowExportConfig(false)} style={{ flex: 1, padding: '12px' }}>Hủy</button>
+              <button className="primary-btn" onClick={triggerExport} style={{ flex: 1, padding: '12px' }}>
+                <Download size={16} /> Tải file Excel
+              </button>
             </div>
           </div>
         </div>
