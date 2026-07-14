@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import Papa from 'papaparse';
-import * as XLSX from 'xlsx';
+import * as XLSX from 'xlsx-js-style';
 import { 
   Search, 
   X, 
@@ -338,6 +338,43 @@ export default function App() {
       return;
     }
 
+    const autoFit = (ws, data) => {
+      if (data.length === 0) return;
+      const headers = Object.keys(data[0] || {});
+      ws['!cols'] = headers.map(header => {
+        let max_len = header.length;
+        data.forEach(row => {
+          const val = row[header] !== undefined && row[header] !== null ? String(row[header]) : "";
+          if (val.length > max_len) {
+            max_len = val.length;
+          }
+        });
+        return { wch: Math.max(10, max_len + 3) };
+      });
+    };
+
+    const styleHeaders = (ws) => {
+      Object.keys(ws).forEach(key => {
+        if (key.match(/^[A-Z]+1$/)) {
+          ws[key].s = {
+            font: {
+              bold: true,
+              color: { rgb: "FFFFFF" },
+              sz: 11,
+              name: "Calibri"
+            },
+            fill: {
+              fgColor: { rgb: "4F46E5" } // Dark blue / Purple theme color
+            },
+            alignment: {
+              horizontal: "center",
+              vertical: "center"
+            }
+          };
+        }
+      });
+    };
+
     if (exportType === 'all') {
       const exportData = filteredData.map(row => {
         const rowData = {};
@@ -347,19 +384,24 @@ export default function App() {
         return rowData;
       });
       const worksheet = XLSX.utils.json_to_sheet(exportData);
+      autoFit(worksheet, exportData);
+      styleHeaders(worksheet);
       const workbook = XLSX.utils.book_new();
       XLSX.utils.book_append_sheet(workbook, worksheet, "Data");
       XLSX.writeFile(workbook, `${currentSheetInfo.name}_export.xlsx`);
       setShowExportConfig(false);
     } else {
       const exportData = pickList.map(item => {
-        const rowData = { 'Số lượng nhặt': item.quantity };
+        const rowData = {};
         selectedColsList.forEach(col => {
           rowData[col] = item.originalRow[col];
         });
+        rowData['Số lượng lấy'] = item.quantity;
         return rowData;
       });
       const worksheet = XLSX.utils.json_to_sheet(exportData);
+      autoFit(worksheet, exportData);
+      styleHeaders(worksheet);
       const workbook = XLSX.utils.book_new();
       XLSX.utils.book_append_sheet(workbook, worksheet, "Pick List");
       XLSX.writeFile(workbook, `danh_sach_nhat_hang_${new Date().getTime()}.xlsx`);
