@@ -16,7 +16,12 @@ import {
   Sliders, 
   RefreshCw,
   Info,
-  Check
+  Check,
+  Filter,
+  PlusCircle,
+  Download,
+  ArrowUpDown,
+  Maximize2
 } from 'lucide-react';
 
 export default function App() {
@@ -51,9 +56,16 @@ export default function App() {
   // UI Display Control States
   const [showHistory, setShowHistory] = useState(false);
   const [showConfig, setShowConfig] = useState(false);
+  const [advancedFilters, setAdvancedFilters] = useState([]);
+  const [showAdvancedFilters, setShowAdvancedFilters] = useState(false);
   const [titleColumn, setTitleColumn] = useState('');
   const [selectedColumns, setSelectedColumns] = useState({}); // column_name -> boolean
   const [nicknameInput, setNicknameInput] = useState('');
+
+  // New States for Features
+  const [sortConfig, setSortConfig] = useState({ column: null, direction: 'none' });
+  const [selectedRow, setSelectedRow] = useState(null); // Data of the selected row for Detail Modal
+  const [showSortMenu, setShowSortMenu] = useState(false);
 
   // Handle Theme Switching
   useEffect(() => {
@@ -242,13 +254,98 @@ export default function App() {
     }
   };
 
+  // Advanced filter helper handlers
+  const addFilter = () => {
+    setAdvancedFilters([...advancedFilters, { id: Date.now(), column: columns[0] || '', operator: 'contains', value: '' }]);
+  };
+
+  const updateFilter = (id, field, newValue) => {
+    setAdvancedFilters(prev => prev.map(f => f.id === id ? { ...f, [field]: newValue } : f));
+  };
+
+  const removeFilter = (id) => {
+    setAdvancedFilters(prev => prev.filter(f => f.id !== id));
+  };
+
+  // Export CSV
+  const exportToCSV = () => {
+    if (filteredData.length === 0) return;
+    const csv = Papa.unparse(filteredData);
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+    const link = document.createElement('a');
+    link.href = URL.createObjectURL(blob);
+    link.setAttribute('download', `${currentSheetInfo.name}_export.csv`);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  };
+
+  // Smart Formatting
+  const formatCellValue = (value) => {
+    if (!value) return <span style={{ color: 'var(--text-tertiary)' }}>—</span>;
+    const str = String(value);
+    
+    // Format Images
+    if (str.match(/\.(jpeg|jpg|gif|png|webp)$/i) && str.startsWith('http')) {
+      return <img src={str} alt="Data" style={{ maxWidth: '100%', maxHeight: '120px', borderRadius: '4px', marginTop: '4px' }} />;
+    }
+    
+    // Format Links
+    if (str.startsWith('http://') || str.startsWith('https://')) {
+      return <a href={str} target="_blank" rel="noopener noreferrer" style={{ color: 'var(--accent)', textDecoration: 'underline' }}>{str}</a>;
+    }
+    
+    // Format Badges (Simple keyword matching)
+    const lower = str.toLowerCase();
+    if (['hoàn thành', 'done', 'thành công', 'đã giao'].includes(lower)) {
+      return <span className="status-badge success">{str}</span>;
+    }
+    if (['hủy', 'đã hủy', 'cancel', 'thất bại', 'lỗi'].includes(lower)) {
+      return <span className="status-badge danger">{str}</span>;
+    }
+    if (['đang xử lý', 'pending', 'đang giao', 'chờ'].includes(lower)) {
+      return <span className="status-badge warning">{str}</span>;
+    }
+    
+    return str;
+  };
+
   // Filter Data Logic (Memoized for performance)
   const filteredData = useMemo(() => {
-    if (!searchTerm.trim()) return allData;
+    let result = allData;
+
+    if (advancedFilters.length > 0) {
+      result = result.filter(row => {
+        return advancedFilters.every(filter => {
+          const { column, operator, value } = filter;
+          if (!column) return true;
+          
+          const cellValue = String(row[column] || '');
+          const cellLower = cellValue.toLowerCase();
+          const valLower = String(value || '').toLowerCase();
+          
+          switch (operator) {
+            case 'contains': return cellLower.includes(valLower);
+            case 'not_contains': return !cellLower.includes(valLower);
+            case 'equals': return cellLower === valLower;
+            case 'not_equals': return cellLower !== valLower;
+            case 'greater_than': return Number(cellValue) > Number(value);
+            case 'less_than': return Number(cellValue) < Number(value);
+            case 'starts_with': return cellLower.startsWith(valLower);
+            case 'ends_with': return cellLower.endsWith(valLower);
+            case 'is_empty': return cellValue.trim() === '';
+            case 'is_not_empty': return cellValue.trim() !== '';
+            default: return true;
+          }
+        });
+      });
+    }
+
+    if (!searchTerm.trim()) return result;
     
     const term = searchTerm.toLowerCase();
     
-    return allData.filter(row => {
+    return result.filter(row => {
       if (searchColumn === 'all') {
         // Search across all columns
         return Object.values(row).some(val => 
@@ -259,7 +356,33 @@ export default function App() {
         return String(row[searchColumn] || '').toLowerCase().includes(term);
       }
     });
-  }, [allData, searchTerm, searchColumn]);
+
+    // Apply Sorting
+    if (sortConfig.column && sortConfig.direction !== 'none') {
+      result = [...result].sort((a, b) => {
+        const valA = a[sortConfig.column];
+        const valB = b[sortConfig.column];
+        
+        if (valA === valB) return 0;
+        if (valA == null) return 1;
+        if (valB == null) return -1;
+        
+        const numA = Number(valA);
+        const numB = Number(valB);
+        if (!isNaN(numA) && !isNaN(numB)) {
+          return sortConfig.direction === 'asc' ? numA - numB : numB - numA;
+        }
+        
+        const strA = String(valA).toLowerCase();
+        const strB = String(valB).toLowerCase();
+        if (strA < strB) return sortConfig.direction === 'asc' ? -1 : 1;
+        if (strA > strB) return sortConfig.direction === 'asc' ? 1 : -1;
+        return 0;
+      });
+    }
+
+    return result;
+  }, [allData, searchTerm, searchColumn, advancedFilters, sortConfig]);
 
   // Pagination Logic
   const pageCount = Math.ceil(filteredData.length / pageSize) || 1;
@@ -512,8 +635,8 @@ export default function App() {
         <main className="main-dashboard">
           {/* Sticky search panel */}
           <div className="filter-panel">
-            <div className="search-container">
-              <div className="search-wrapper">
+            <div className="search-container" style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+              <div className="search-wrapper" style={{ width: '100%' }}>
                 <span className="input-icon" style={{ left: '12px' }}>
                   <Search size={16} />
                 </span>
@@ -544,14 +667,120 @@ export default function App() {
                 )}
               </div>
 
-              <button 
-                className="icon-btn" 
-                onClick={() => setShowConfig(true)}
-                title="Cấu hình hiển thị"
-              >
-                <Sliders size={18} />
-              </button>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', width: '100%' }}>
+                {/* Action Toolbar */}
+                <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+                  <button 
+                    className="icon-btn" 
+                    onClick={exportToCSV}
+                    title="Xuất file CSV"
+                  >
+                    <Download size={18} />
+                  </button>
+                  <div style={{ position: 'relative' }}>
+                    <button 
+                      className="icon-btn" 
+                      onClick={() => setShowSortMenu(!showSortMenu)}
+                      title="Sắp xếp"
+                      style={sortConfig.direction !== 'none' ? { backgroundColor: 'var(--accent-light)', color: 'var(--accent)', borderColor: 'var(--accent)' } : {}}
+                    >
+                      <ArrowUpDown size={18} />
+                    </button>
+                    {showSortMenu && (
+                      <div className="sort-menu-dropdown" style={{ left: 0, right: 'auto', width: 'max-content', minWidth: '220px' }}>
+                        <div className="sort-title">Sắp xếp theo:</div>
+                        <select 
+                          value={sortConfig.column || ''} 
+                          onChange={(e) => setSortConfig(prev => ({ ...prev, column: e.target.value, direction: prev.direction === 'none' ? 'asc' : prev.direction }))}
+                          className="filter-select"
+                          style={{ width: '100%', marginBottom: '8px' }}
+                        >
+                          <option value="" disabled>Chọn cột</option>
+                          {columns.map(col => <option key={col} value={col}>{col}</option>)}
+                        </select>
+                        <div style={{ display: 'flex', gap: '4px' }}>
+                          <button 
+                            className={`pill ${sortConfig.direction === 'asc' ? 'active' : ''}`} 
+                            onClick={() => setSortConfig(prev => ({ column: prev.column || columns[0], direction: 'asc' }))} 
+                            style={{ flex: 1, justifyContent: 'center' }}
+                          >A-Z</button>
+                          <button 
+                            className={`pill ${sortConfig.direction === 'desc' ? 'active' : ''}`} 
+                            onClick={() => setSortConfig(prev => ({ column: prev.column || columns[0], direction: 'desc' }))} 
+                            style={{ flex: 1, justifyContent: 'center' }}
+                          >Z-A</button>
+                          <button className="icon-btn" style={{ width: 32, height: 32 }} onClick={() => { setSortConfig({ column: null, direction: 'none' }); setShowSortMenu(false); }}><X size={14}/></button>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                  <button 
+                    className="icon-btn" 
+                    onClick={() => setShowAdvancedFilters(!showAdvancedFilters)}
+                    title="Bộ lọc nâng cao"
+                    style={{ position: 'relative', ...(showAdvancedFilters || advancedFilters.length > 0 ? { backgroundColor: 'var(--accent-light)', color: 'var(--accent)', borderColor: 'var(--accent)' } : {}) }}
+                  >
+                    <Filter size={18} />
+                    {advancedFilters.length > 0 && (
+                      <span style={{ position: 'absolute', top: -4, right: -4, background: 'var(--danger)', color: 'white', borderRadius: '50%', width: 16, height: 16, fontSize: 10, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                        {advancedFilters.length}
+                      </span>
+                    )}
+                  </button>
+                  <button 
+                    className="icon-btn" 
+                    onClick={() => setShowConfig(true)}
+                    title="Cấu hình hiển thị"
+                  >
+                    <Sliders size={18} />
+                  </button>
+                </div>
+              </div>
             </div>
+
+            {/* Advanced Filters Builder */}
+            {showAdvancedFilters && (
+              <div className="advanced-filters-container">
+                <div style={{ fontSize: '0.85rem', fontWeight: 600, color: 'var(--text-secondary)', marginBottom: '8px', display: 'flex', justifyContent: 'space-between' }}>
+                  <span>Điều kiện lọc (AND):</span>
+                  <button onClick={() => setAdvancedFilters([])} style={{ color: 'var(--danger)', fontSize: '0.8rem' }}>Xóa tất cả</button>
+                </div>
+                {advancedFilters.length === 0 ? (
+                  <div style={{ textAlign: 'center', padding: '16px', color: 'var(--text-tertiary)', fontSize: '0.85rem', border: '1px dashed var(--border)', borderRadius: 'var(--radius-sm)' }}>
+                    Chưa có điều kiện nào. Bấm thêm điều kiện bên dưới.
+                  </div>
+                ) : (
+                  <div className="filters-list">
+                    {advancedFilters.map((f) => (
+                      <div key={f.id} className="filter-row">
+                        <select className="filter-select" value={f.column} onChange={e => updateFilter(f.id, 'column', e.target.value)}>
+                          {columns.map(col => <option key={col} value={col}>{col}</option>)}
+                        </select>
+                        <select className="filter-select" value={f.operator} onChange={e => updateFilter(f.id, 'operator', e.target.value)}>
+                          <option value="contains">Chứa (Contains)</option>
+                          <option value="not_contains">Không chứa</option>
+                          <option value="equals">Bằng (=)</option>
+                          <option value="not_equals">Khác (!=)</option>
+                          <option value="greater_than">Lớn hơn (&gt;)</option>
+                          <option value="less_than">Nhỏ hơn (&lt;)</option>
+                          <option value="starts_with">Bắt đầu bằng</option>
+                          <option value="ends_with">Kết thúc bằng</option>
+                          <option value="is_empty">Rỗng</option>
+                          <option value="is_not_empty">Không rỗng</option>
+                        </select>
+                        {!['is_empty', 'is_not_empty'].includes(f.operator) && (
+                          <input type="text" className="filter-input" placeholder="Giá trị..." value={f.value} onChange={e => updateFilter(f.id, 'value', e.target.value)} />
+                        )}
+                        <button className="icon-btn" style={{ width: 32, height: 32, flexShrink: 0 }} onClick={() => removeFilter(f.id)}><X size={14} /></button>
+                      </div>
+                    ))}
+                  </div>
+                )}
+                <button className="primary-btn" style={{ marginTop: '12px', padding: '8px 12px', fontSize: '0.85rem', width: '100%' }} onClick={addFilter}>
+                  <PlusCircle size={16} /> Thêm điều kiện lọc
+                </button>
+              </div>
+            )}
 
             {/* Quick search-column filter pill selector */}
             <div className="filter-pills">
@@ -608,10 +837,13 @@ export default function App() {
                 const cardTitle = row[titleColumn] || `Dòng thứ #${globalIndex}`;
 
                 return (
-                  <article key={index} className="data-card">
+                  <article key={index} className="data-card" onClick={() => setSelectedRow(row)} style={{ cursor: 'pointer' }}>
                     <header className="card-header">
                       <h4 className="card-title">{cardTitle}</h4>
-                      <span className="card-index">#{globalIndex}</span>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                        <span className="card-index">#{globalIndex}</span>
+                        <Maximize2 size={14} style={{ color: 'var(--text-tertiary)' }} />
+                      </div>
                     </header>
                     
                     <div className="card-body">
@@ -620,7 +852,7 @@ export default function App() {
                         .map((col, colIdx) => (
                           <div key={colIdx} className="property-row">
                             <span className="property-label">{col}:</span>
-                            <span className="property-value">{row[col] || <span style={{ color: 'var(--text-tertiary)' }}>—</span>}</span>
+                            <span className="property-value">{formatCellValue(row[col])}</span>
                           </div>
                         ))}
                     </div>
@@ -752,6 +984,28 @@ export default function App() {
                   <option value={100}>100 dòng / trang</option>
                 </select>
               </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* 7. DETAIL MODAL */}
+      {selectedRow && (
+        <div className="drawer-overlay" onClick={() => setSelectedRow(null)}>
+          <div className="drawer-content detail-modal" onClick={(e) => e.stopPropagation()}>
+            <header className="drawer-header" style={{ position: 'sticky', top: 0, backgroundColor: 'var(--bg-card)', zIndex: 10, paddingBottom: '12px', borderBottom: '1px solid var(--border)' }}>
+              <h3 className="drawer-title" style={{ fontSize: '1.2rem' }}>{selectedRow[titleColumn] || 'Chi tiết'}</h3>
+              <button className="close-btn" onClick={() => setSelectedRow(null)}>
+                <X size={20} />
+              </button>
+            </header>
+            <div className="detail-body">
+              {columns.map((col, idx) => (
+                <div key={idx} className="detail-row">
+                  <div className="detail-label">{col}</div>
+                  <div className="detail-value">{formatCellValue(selectedRow[col])}</div>
+                </div>
+              ))}
             </div>
           </div>
         </div>

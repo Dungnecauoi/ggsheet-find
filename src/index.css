@@ -937,3 +937,140 @@ input:checked + .slider {
 input:checked + .slider:before {
   transform: translateX(20px);
 }
+
+/* Advanced Filters UI */
+.advanced-filters-container {
+  background-color: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  padding: 12px;
+  margin-top: 8px;
+  box-shadow: var(--shadow-sm);
+}
+
+.filters-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.filter-row {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.filter-select {
+  padding: 8px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border);
+  background-color: var(--bg-primary);
+  font-size: 0.85rem;
+  flex: 1;
+  min-width: 0;
+}
+
+.filter-input {
+  padding: 8px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border);
+  background-color: var(--bg-primary);
+  font-size: 0.85rem;
+  flex: 1;
+  min-width: 0;
+}
+
+.filter-input:focus, .filter-select:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+
+@media (max-width: 400px) {
+  .filter-row {
+    flex-wrap: wrap;
+  }
+  .filter-select, .filter-input {
+    flex-basis: 100%;
+  }
+}
+
+/* Sorting Dropdown */
+.sort-menu-dropdown {
+  position: absolute;
+  top: 100%;
+  left: 0;
+  margin-top: 8px;
+  background-color: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-md);
+  padding: 12px;
+  width: 240px;
+  z-index: 105;
+}
+
+.sort-title {
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: var(--text-tertiary);
+  margin-bottom: 8px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+/* Status Badges */
+.status-badge {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: var(--radius-full);
+  font-size: 0.75rem;
+  font-weight: 600;
+}
+.status-badge.success {
+  background-color: var(--success-light);
+  color: var(--success);
+}
+.status-badge.danger {
+  background-color: var(--danger-light);
+  color: var(--danger);
+}
+.status-badge.warning {
+  background-color: hsl(40, 100%, 90%);
+  color: hsl(35, 100%, 35%);
+}
+[data-theme='dark'] .status-badge.warning {
+  background-color: hsl(40, 100%, 15%);
+  color: hsl(40, 100%, 65%);
+}
+
+/* Detail Modal */
+.detail-modal {
+  max-width: 600px;
+  max-height: 90vh;
+  padding: 0;
+}
+.detail-body {
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+}
+.detail-row {
+  display: flex;
+  flex-direction: column;
+  padding: 12px 0;
+  border-bottom: 1px dashed var(--border);
+}
+.detail-row:last-child {
+  border-bottom: none;
+}
+.detail-label {
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: var(--text-tertiary);
+  margin-bottom: 4px;
+}
+.detail-value {
+  font-size: 0.95rem;
+  color: var(--text-primary);
+  word-break: break-word;
+}
