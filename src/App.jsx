@@ -70,16 +70,31 @@ export default function App() {
   const parseSheetUrl = (url) => {
     if (!url) return null;
     
-    // Spreadsheets ID: sits between /d/ and /edit (or similar)
-    const idMatch = url.match(/\/spreadsheets\/d\/([a-zA-Z0-9-_]+)/);
-    if (!idMatch) return null;
+    let spreadsheetId = null;
+    let isPublished = false;
+
+    // Check for published format first /d/e/ID
+    const pubMatch = url.match(/\/d\/e\/([a-zA-Z0-9-_]+)/);
+    if (pubMatch) {
+      spreadsheetId = pubMatch[1];
+      isPublished = true;
+    } else {
+      // Normal format /d/ID
+      const idMatch = url.match(/\/d\/([a-zA-Z0-9-_]+)/);
+      if (idMatch) {
+        spreadsheetId = idMatch[1];
+      }
+    }
+    
+    if (!spreadsheetId) return null;
     
     // GID: sits after gid=
     const gidMatch = url.match(/[#&?]gid=([0-9]+)/);
     
     return {
-      spreadsheetId: idMatch[1],
-      gid: gidMatch ? gidMatch[1] : '0'
+      spreadsheetId,
+      gid: gidMatch ? gidMatch[1] : '0',
+      isPublished
     };
   };
 
@@ -96,8 +111,14 @@ export default function App() {
     setSearchTerm('');
     setCurrentPage(1);
 
-    const { spreadsheetId, gid } = parsed;
-    const exportUrl = `https://docs.google.com/spreadsheets/d/${spreadsheetId}/export?format=csv&gid=${gid}`;
+    const { spreadsheetId, gid, isPublished } = parsed;
+    
+    let exportUrl;
+    if (isPublished) {
+      exportUrl = `https://docs.google.com/spreadsheets/d/e/${spreadsheetId}/pub?gid=${gid}&single=true&output=csv`;
+    } else {
+      exportUrl = `https://docs.google.com/spreadsheets/d/${spreadsheetId}/export?format=csv&gid=${gid}`;
+    }
 
     try {
       const response = await fetch(exportUrl);
